@@ -1,0 +1,155 @@
+---
+title: "hw6_ss7636"
+output: html_document
+date: "2025-11-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+## Question 1
+
+```{r}
+homicide = 
+ read_csv("homicide-data.csv", na = c("NA",".", "")) |> 
+  janitor :: clean_names() 
+homicide
+```
+
+```{r}
+homicide_city_state = 
+  homicide |> 
+  mutate(
+    city_state = paste(city, state, sep = ", ")
+  ) |> 
+  mutate(
+    unsolved = disposition %in% c("Closed without arrest", "Open/No arrest")
+  ) |> 
+  mutate(unsolved_bin = ifelse(unsolved == TRUE, 1, 0)) |> 
+  filter(!(city_state %in% c("Dallas, TX",
+                             "Phoenix, AZ",
+                             "Kansas City, MO",
+                             "Tulsa, AL"))) |> 
+  filter(victim_race %in% c("White", "Black")) |> 
+  mutate(victim_age = as.numeric(victim_age)) 
+  
+homicide_city_state
+```
+
+```{r}
+baltimore = homicide_city_state |> 
+  filter(city_state == "Baltimore, MD")
+
+
+fit = glm(
+  unsolved_bin ~ victim_age + victim_sex + victim_race, data = baltimore,  family = binomial(link = "logit")
+)
+tidy_fit = broom::tidy(fit, conf.int = TRUE, exponentiate = TRUE)
+
+tidy_fit
+```
+```{r}
+tidy_fit |> 
+  filter(term == "victim_sexMale")
+```
+```{r}
+city_models = homicide_city_state |> 
+  group_by(city_state) |> 
+  nest() |> 
+  mutate(
+    fit = map(data, ~ glm(
+      unsolved_bin ~ victim_age + victim_sex + victim_race,
+      data = .x,
+      family = binomial(link = "logit")
+    )),
+    tidy_fit = map(fit, ~ broom::tidy(.x, conf.int = TRUE, exponentiate = TRUE))
+  ) |> 
+  select(city_state, tidy_fit) |> 
+  unnest(tidy_fit) |> 
+  filter(term == "victim_sexMale")  
+
+city_models
+```
+
+```{r city_models_plot, fig.height=10, fig.width=10}
+city_models_plot = ggplot(city_models |> 
+         mutate(city_state = fct_reorder(city_state, estimate)),
+       aes(x = city_state, y = estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high)) +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  coord_flip() +
+  labs(
+    title = "Adjusted Odds Ratio (Male vs Female) of Solved Homicides by City",
+    x = "City",
+    y = "Adjusted Odds Ratio (Male vs Female)",
+    caption = "OR < 1 → Male victims less likely to have case solved\nOR > 1 → Male victims more likely to have case solved"
+  ) 
+
+city_models_plot
+```
+
+The plot shows the odds that a homicide is solved for male vs female victims, holding age and race constant for each city and state. Many cities and states have the OR > 1, meaning male victems are more likely to have their case solved. Notable cities would be Baton Rouge, LA, Cincinnati, OH, Long Beach, CA, New York, NY, and San Diego, CA. A few cities have OR = 1, such as Atlanta, GA and Nashville, TN. Very few cities have OR < 1. Some include Alburquerque, NM, Fresno, CA, and Stockton, CA. 
+
+## Question 2
+
+```{r}
+library(p8105.datasets)
+data("weather_df")
+
+weather_df
+```
+
+```{r}
+fit0 = lm(tmax ~ tmin + prcp, data = weather_df)
+broom::glance(fit0)
+broom::tidy(fit0)
+
+
+B = 5000
+
+boot_results = map_dfr(1:B, function(i) {
+  boot_sample = weather_df |>  sample_frac(replace = TRUE)
+
+  fit = lm(tmax ~ tmin + prcp, data = boot_sample)
+  r2 = broom::glance(fit)$r.squared
+  coefs = broom::tidy(fit)
+
+  beta_tmin = coefs$estimate[coefs$term == "tmin"]
+  beta_prcp = coefs$estimate[coefs$term == "prcp"]
+
+  tibble(
+    r2 = r2,
+    beta_prod = beta_tmin/ beta_prcp
+  )
+})
+
+boot_results
+```
+
+```{r}
+ggplot(boot_results, aes(x = r2)) +
+  geom_histogram(bins = 40, color = "white") +
+  labs(title = "Bootstrap Distribution of R-squared",
+       x = "R-squared",
+       y = "Frequency") +
+  theme_minimal()
+
+ggplot(boot_results, aes(x = beta_prod)) +
+  geom_histogram(bins = 40, color = "white") +
+  labs(title = "Bootstrap Distribution of β1/ β2",
+       x = "β_tmin / β_prcp",
+       y = "Frequency") +
+  theme_minimal()
+```
+
+```{r}
+
+quantile(boot_results$r2, c(0.025, 0.975))
+quantile(boot_results$beta_prod, c(0.025, 0.975))
+```
+
+## Question 3
+

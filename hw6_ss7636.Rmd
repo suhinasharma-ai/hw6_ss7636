@@ -7,6 +7,7 @@ date: "2025-11-27"
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(modelr)
 ```
 
 ## Question 1
@@ -153,3 +154,113 @@ quantile(boot_results$beta_prod, c(0.025, 0.975))
 
 ## Question 3
 
+```{r}
+birthweight = 
+ read_csv("birthweight.csv", na = c("NA",".", "")) |> 
+  janitor :: clean_names() 
+birthweight
+```
+
+```{r}
+ babies_clean = birthweight |> 
+  mutate(
+    babysex = factor(babysex, levels = c(1,2), labels = c("Male","Female")),
+    malform = factor(malform, levels = c(0,1), labels = c("No","Yes")),
+    frace = factor(frace,
+                   levels = c(1,2,3,4,8,9),
+                   labels = c("White","Black","Asian","PuertoRican","Other","Unknown")),
+    mrace = factor(mrace,
+                   levels = c(1,2,3,4,8),
+                   labels = c("White","Black","Asian","PuertoRican","Other"))
+  ) |> 
+  mutate(
+    parity = as.integer(parity), bwt = as.numeric(bwt), blength = as.numeric(blength), bhead = as.numeric(bhead), gaweeks = as.numeric(gaweeks), ppbmi = as.numeric(ppbmi), ppwt = as.numeric(ppwt), smoken = as.numeric(smoken), momage = as.numeric(momage), wtgain = as.numeric(wtgain)
+  ) 
+
+ babies_clean 
+  
+```
+
+```{r}
+proposed_formula = bwt ~ babysex + gaweeks + blength + bhead +
+  ppbmi + smoken + parity + momage + wtgain + malform + frace + mrace +
+  babysex:gaweeks + babysex:blength
+
+fit_proposed = lm(proposed_formula, data =  babies_clean )
+
+broom::glance(fit_proposed) |> 
+  print()
+broom::tidy(fit_proposed) |> 
+  print()
+```
+
+For this model, I wanted to include fetal size (length, head), maturity (gestational age), sex, maternal resources/behavior (BMI, weight gain, smoking), parity and parental race. I also added two interaction terms (sex × gestational age, sex × length) to allow sex differences in growth trajectories and length–weight mapping.
+
+```{r}
+diag_df = babies_clean |> 
+  add_predictions(fit_proposed, var = "pred") |> 
+  add_residuals(fit_proposed, var = "resid")
+
+p_resid = ggplot(diag_df, aes(x = pred, y = resid)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(title = "Residuals vs Fitted for Proposed Birthweight Model",
+       x = "Fitted birthweight (g)",
+       y = "Residuals (observed - fitted, g)") +
+  theme_minimal()
+print(p_resid)
+```
+
+```{r}
+modA_formula = bwt ~ blength + gaweeks
+modB_formula = bwt ~ bhead * blength * babysex
+
+models = list(
+  proposed = proposed_formula,
+  model_A = modA_formula,
+  model_B = modB_formula
+)
+```
+
+
+```{r}
+set.seed(123)
+cv_df = crossv_mc(babies_clean, n = 100)
+
+cv_results = cv_df |> 
+  mutate(
+    fits = map(train, ~ map(models, lm, data = as.data.frame(.x)))
+  )
+
+cv_results = cv_results |> 
+  mutate(
+    rmse = map2(fits, test, ~ map(.x, function(mod) {
+      test_df = as.data.frame(.y)
+      pred = predict(mod, newdata = test_df)
+      sqrt(mean((test_df$bwt - pred)^2))
+    }))
+  )
+
+rmse_tidy = cv_results |> 
+  select(rmse) |> 
+  unnest_wider(rmse) |> 
+  pivot_longer(
+    cols = everything(),
+    names_to = "model",
+    values_to = "rmse"
+  )
+
+rmse_summary = rmse_tidy |> 
+  group_by(model) |> 
+  summarize(
+    mean_RMSE = mean(rmse),
+    sd_RMSE = sd(rmse),
+    .groups = "drop"
+  )
+
+rmse_summary
+
+```
+
+I compared three models predicting birthweight using cross-validation and evaluated their prediction errors using RMSE. The model including head circumference, length, sex, and all their interactions had the lowest average RMSE (288 g), indicating the best predictive accuracy and stability. My proposed model, which incorporates fetal size, gestational age, sex, and maternal factors such as BMI, smoking, parity, and race, performed well with an average RMSE of 327 g. Although it was more accurate than the simplest model with only length and gestational age (RMSE ≈ 331 g), it did not outperform the full interaction model. 

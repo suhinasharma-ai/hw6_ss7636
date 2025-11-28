@@ -28,7 +28,7 @@ homicide_city_state =
   mutate(
     unsolved = disposition %in% c("Closed without arrest", "Open/No arrest")
   ) |> 
-  mutate(unsolved_bin = ifelse(unsolved == TRUE, 1, 0)) |> 
+  mutate(solved_bin = ifelse(unsolved == TRUE, 0, 1)) |> 
   filter(!(city_state %in% c("Dallas, TX",
                              "Phoenix, AZ",
                              "Kansas City, MO",
@@ -45,7 +45,7 @@ baltimore = homicide_city_state |>
 
 
 fit = glm(
-  unsolved_bin ~ victim_age + victim_sex + victim_race, data = baltimore,  family = binomial(link = "logit")
+  solved_bin ~ victim_age + victim_sex + victim_race, data = baltimore,  family = binomial(link = "logit")
 )
 tidy_fit = broom::tidy(fit, conf.int = TRUE, exponentiate = TRUE)
 
@@ -55,13 +55,15 @@ tidy_fit
 tidy_fit |> 
   filter(term == "victim_sexMale")
 ```
+The adjusted odds ratio for a homicide being solved comparing male to female victims, holding age and race constant, was OR = 0.426. The confidence interval is (0.324, 0.558).
+
 ```{r}
 city_models = homicide_city_state |> 
   group_by(city_state) |> 
   nest() |> 
   mutate(
     fit = map(data, ~ glm(
-      unsolved_bin ~ victim_age + victim_sex + victim_race,
+      solved_bin ~ victim_age + victim_sex + victim_race,
       data = .x,
       family = binomial(link = "logit")
     )),
@@ -92,7 +94,7 @@ city_models_plot = ggplot(city_models |>
 city_models_plot
 ```
 
-The plot shows the odds that a homicide is solved for male vs female victims, holding age and race constant for each city and state. Many cities and states have the OR > 1, meaning male victems are more likely to have their case solved. Notable cities would be Baton Rouge, LA, Cincinnati, OH, Long Beach, CA, New York, NY, and San Diego, CA. A few cities have OR = 1, such as Atlanta, GA and Nashville, TN. Very few cities have OR < 1. Some include Alburquerque, NM, Fresno, CA, and Stockton, CA. 
+The plot shows the odds that a homicide is solved for male vs female victims, holding age and race constant for each city and state. Many cities and states have the OR < 1, meaning male victims are less likely to have their cases solved. Notable cities would be Baton Rouge, LA, Cincinnati, OH, Long Beach, CA, New York, NY, and San Diego, CA. A few cities have OR = 1, such as Atlanta, GA and Nashville, TN. Very few cities have OR > 1. Some include Alburquerque, NM, Fresno, CA, and Stockton, CA. 
 
 ## Question 2
 

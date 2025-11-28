@@ -145,6 +145,7 @@ ggplot(boot_results, aes(x = beta_prod)) +
        y = "Frequency") +
   theme_minimal()
 ```
+The bootstrap distribution of R² roughly symmetric, unimodal and is centered around 0.94. This suggests that the model explains a consistent portion of the variation in tmax. However, the bootstrap distribution of β₁/β₂ is much more skewed to the left.
 
 ```{r}
 
@@ -261,6 +262,17 @@ rmse_summary = rmse_tidy |>
 
 rmse_summary
 
+```
+
+```{r}
+ggplot(rmse_tidy, aes(x = model, y = rmse)) +
+  geom_violin(trim = FALSE, color = "black") +  
+  theme_minimal() +
+  labs(
+    title = "Cross-Validated RMSE for Birthweight Models",
+    x = "Model",
+    y = "RMSE"
+  )
 ```
 
 I compared three models predicting birthweight using cross-validation and evaluated their prediction errors using RMSE. The model including head circumference, length, sex, and all their interactions had the lowest average RMSE (288 g), indicating the best predictive accuracy and stability. My proposed model, which incorporates fetal size, gestational age, sex, and maternal factors such as BMI, smoking, parity, and race, performed well with an average RMSE of 327 g. Although it was more accurate than the simplest model with only length and gestational age (RMSE ≈ 331 g), it did not outperform the full interaction model. 
